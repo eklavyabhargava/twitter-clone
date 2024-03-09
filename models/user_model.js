@@ -11,7 +11,7 @@ const userSchema = new mongoose.Schema(
     location: { type: String },
     dob: { type: Date },
     followers: [{ type: ObjectId, ref: "User" }],
-    following: [{ type: ObjectId, ref: "User" }],
+    followings: [{ type: ObjectId, ref: "User" }],
   },
 
   { timestamps: true }

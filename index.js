@@ -3,6 +3,7 @@ const cors = require("cors");
 const connectDb = require("./db");
 const morgan = require("morgan");
 const path = require("path");
+const { rateLimit } = require("express-rate-limit");
 const mongoose = require("mongoose");
 
 const app = express();
@@ -20,18 +21,42 @@ require("./models/tweet_model");
 const User = mongoose.model("User");
 const Tweet = mongoose.model("Tweet");
 
-app.use(cors());
+const contentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 400,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(
+  cors({
+    origin: process.env.ALLOWED_ORIGIN,
+    methods: "GET, POST, PUT, DELETE",
+    optionSuccessStatus: 200,
+  })
+);
 app.use(express.json());
 app.use(logger);
 
-app.use("/profile", express.static(path.join(__dirname, "./images")));
+app.use(
+  "/profile",
+  contentLimiter,
+  express.static(path.join(__dirname, "./images"))
+);
 
-app.use("/api", require("./routes/authenticate"));
-app.use("/api", require("./routes/userRoute"));
-app.use("/api", require("./routes/tweetRoute"));
+app.use("/api", apiLimiter, require("./routes/authenticate"));
+app.use("/api", apiLimiter, require("./routes/userRoute"));
+app.use("/api", apiLimiter, require("./routes/tweetRoute"));
 
 // API: get profile picture
-app.get("/:userId/profile-pic", async (req, res) => {
+app.get("/:userId/profile-pic", contentLimiter, async (req, res) => {
   try {
     // find user and return user's profile image
     const user = await User.findById(req.params.userId);
@@ -47,7 +72,7 @@ app.get("/:userId/profile-pic", async (req, res) => {
 });
 
 // API: get tweet images
-app.get("/post-image/:tweetId", async (req, res) => {
+app.get("/post-image/:tweetId", contentLimiter, async (req, res) => {
   try {
     const tweet = await Tweet.findById(req.params.tweetId);
     if (!tweet) {

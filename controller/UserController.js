@@ -8,9 +8,26 @@ const multer = require("multer");
 const path = require("path");
 
 const getUserById = async (id) => {
-  const user = await User.findById(id);
-  return user;
+  try {
+    const user = await User.findById(id);
+    return { isSuccess: true, user };
+  } catch (error) {
+    console.log(error);
+    return { isSuccess: false };
+  }
 };
+
+async function getUserByName(username) {
+  try {
+    const users = await User.find({
+      username: { $regex: `^${username}`, $options: "i" },
+    });
+    return { isSuccess: true, users };
+  } catch (error) {
+    console.log(error);
+    return { isSuccess: false };
+  }
+}
 
 // API: get logged-in user detail
 router.get("/get-details", async (req, res) => {
@@ -22,11 +39,14 @@ router.get("/get-details", async (req, res) => {
         .json({ isSuccess: false, errMsg: "Please login again!" });
     }
 
-    const userData = await getUserById(userId);
-    res.status(200).json({
-      isSuccess: true,
-      user: userData,
-    });
+    const response = await getUserById(userId);
+    if (response.isSuccess && response.user) {
+      const { user } = response;
+      res.status(200).json({
+        isSuccess: true,
+        user: user,
+      });
+    }
   } catch (error) {
     console.log(error);
     res.status(500).json({ isSuccess: false, errMsg: "Internal server error" });
@@ -34,17 +54,23 @@ router.get("/get-details", async (req, res) => {
 });
 
 // API: get single user details
-router.get("/:id", async (req, res) => {
+router.get("/get-user-details/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await getUserById(id);
-    if (user) {
+    const response = await getUserById(id);
+    if (response.isSuccess && response.user) {
+      const { user } = response;
       res.status(200).json({
-        id: user._id,
+        isSuccess: true,
+        _id: user._id,
         name: user.name,
+        username: user.username,
         dob: user.dob,
+        followers: user.followers,
+        followings: user.followings,
         location: user.location,
-        profilePic: path.join(__dirname, "..", user.profilePic), // Add profilePic field
+        profilePic: path.join(__dirname, "..", user.profilePic),
+        createdAt: user.createdAt,
       });
     } else {
       res.status(404).json({ isSuccess: false, errMsg: "User Not Found" });
@@ -79,7 +105,7 @@ router.put("/follow/:id", async (req, res) => {
     if (user.followers.includes(followerId)) {
       return res
         .status(400)
-        .json({ isSuccess: false, errMsg: "Already following!" });
+        .json({ isSuccess: false, errMsg: "Already followings!" });
     }
 
     // Else:
@@ -88,9 +114,9 @@ router.put("/follow/:id", async (req, res) => {
     user.followers.push(followerId);
     await user.save();
 
-    // get followerId's details and add followerId in following fields
+    // get followerId's details and add followerId in followings fields
     const follower = await User.findById(followerId);
-    follower.following.push(userId);
+    follower.followings.push(userId);
     await follower.save();
 
     return res.status(200).json({ isSuccess: true });
@@ -106,30 +132,30 @@ router.put("/unfollow/:id", async (req, res) => {
   const followerId = req.user._id;
 
   try {
-    const following = await User.findById(followingId);
+    const followings = await User.findById(followingId);
     const follower = await User.findById(followerId);
-    if (!following) {
+    if (!followings) {
       return res
         .status(404)
         .json({ isSuccess: false, errMsg: "User Not Found" });
     }
 
-    // check if user following or not to that user
-    if (!following.followers.includes(followerId)) {
+    // check if user followings or not to that user
+    if (!followings.followers.includes(followerId)) {
       return res
         .status(409)
-        .json({ isSuccess: false, errMsg: "Not Following" });
+        .json({ isSuccess: false, errMsg: "Not followings" });
     }
 
-    // Remove the follower from the following's followers array
-    const followerIndex = following.followers.indexOf(followerId);
-    following.followers.splice(followerIndex, 1);
+    // Remove the follower from the followings's followers array
+    const followerIndex = followings.followers.indexOf(followerId);
+    followings.followers.splice(followerIndex, 1);
 
-    // Remove the following from the follower's following array
-    const followingIndex = follower.following.indexOf(followingId);
-    follower.following.splice(followingIndex, 1);
+    // Remove the followings from the follower's followings array
+    const followingIndex = follower.followings.indexOf(followingId);
+    follower.followings.splice(followingIndex, 1);
 
-    await following.save();
+    await followings.save();
     await follower.save();
 
     return res.status(200).json({ isSuccess: true });
@@ -140,7 +166,7 @@ router.put("/unfollow/:id", async (req, res) => {
 });
 
 // API: edit user detail
-router.put("/edit-details/:id", async (req, res) => {
+router.put("/edit-profile/:id", async (req, res) => {
   const { name, dob, location } = req.body;
   const reqId = req.params.id;
   const userId = req.user._id;
@@ -221,9 +247,9 @@ router.post(
           errMsg: "Not allowed to change other's profile",
         });
       } else {
-        const user = await User.findById(currentUser);
+        const { isSuccess, user } = await getUserById(currentUser);
 
-        if (user) {
+        if (isSuccess && user) {
           user.profilePic = req.file.filename;
           await user.save();
           res
@@ -239,5 +265,29 @@ router.post(
     }
   }
 );
+
+router.get("/get-user-by-name/:username", async (req, res) => {
+  const { username } = req.params;
+  if (!username) {
+    return res.status(400).json({ isSuccess: false });
+  }
+
+  const { isSuccess, users } = await getUserByName(username);
+
+  const sanitizedUsers = users?.map((user) => {
+    const sanitizedUser = user.toObject({ getters: true, virtuals: true });
+    delete sanitizedUser.password;
+    return sanitizedUser;
+  });
+
+  if (isSuccess && sanitizedUsers) {
+    res.status(200).json({
+      isSuccess: true,
+      users: [...sanitizedUsers],
+    });
+  } else {
+    res.status(404).json({ isSuccess: false });
+  }
+});
 
 module.exports = router;
