@@ -10,7 +10,7 @@ require("dotenv").config();
 
 const app = express();
 
-app.set("trust proxy", 3);
+app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
 
 const PORT = process.env.PORT;
 
