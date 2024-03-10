@@ -6,6 +6,8 @@ const path = require("path");
 const { rateLimit } = require("express-rate-limit");
 const mongoose = require("mongoose");
 
+require("dotenv").config();
+
 const app = express();
 const PORT = process.env.PORT;
 
