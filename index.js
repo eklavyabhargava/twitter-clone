@@ -10,7 +10,7 @@ require("dotenv").config();
 
 const app = express();
 
-app.set("trust proxy", 1);
+app.set("trust proxy", 3);
 
 const PORT = process.env.PORT;
 
@@ -55,7 +55,7 @@ app.use(
   contentLimiter,
   express.static(path.join(__dirname, "./images"))
 );
-
+app.get("/ip", (request, response) => response.send(request.ip));
 app.use("/api", apiLimiter, require("./routes/authenticate"));
 app.use("/api", apiLimiter, require("./routes/userRoute"));
 app.use("/api", apiLimiter, require("./routes/tweetRoute"));
