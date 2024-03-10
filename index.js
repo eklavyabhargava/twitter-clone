@@ -9,6 +9,9 @@ const mongoose = require("mongoose");
 require("dotenv").config();
 
 const app = express();
+
+app.set("trust proxy", true);
+
 const PORT = process.env.PORT;
 
 // get logs
