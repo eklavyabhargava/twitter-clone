@@ -180,7 +180,7 @@ router.get("/get-tweets", async (req, res) => {
 
     res.status(200).json({ isSuccess: true, tweets: tweets });
   } catch (error) {
-    console.error(error);
+    console.log(error);
     res.status(500).json({ isSuccess: false, errMsg: "Internal Server Error" });
   }
 });

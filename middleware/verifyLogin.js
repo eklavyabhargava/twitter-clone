@@ -23,6 +23,7 @@ module.exports = (req, res, next) => {
           .status(401)
           .json({ Error: "Token has expired. Please log in again!" });
       } else {
+        console.log(error);
         return res.status(500).json({ Error: "Internal error occurred!" });
       }
     } else {
@@ -36,6 +37,7 @@ module.exports = (req, res, next) => {
           next();
         })
         .catch((error) => {
+          console.log(error);
           return res.status(500).json({ Error: error.message });
         });
     }
