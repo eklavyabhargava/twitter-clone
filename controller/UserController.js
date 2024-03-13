@@ -1,11 +1,16 @@
 const express = require("express");
+const AWS = require("aws-sdk");
 const mongoose = require("mongoose");
-
 const router = express.Router();
 const User = mongoose.model("User");
 
 const multer = require("multer");
 const path = require("path");
+
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+});
 
 const getUserById = async (id) => {
   try {
@@ -211,26 +216,27 @@ router.put("/edit-profile/:id", async (req, res) => {
 });
 
 // set file destination
-const storage = multer.diskStorage({
+const storage = multer.memoryStorage({
   destination: function (req, file, cb) {
-    cb(null, "images/");
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const extension = path.extname(file.originalname);
-    cb(null, uniqueSuffix + extension); // rename file with unique suffix and original extension
-  },
-  fileFilter: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    if (ext !== ".jpg" && ext !== ".jpeg" && ext !== ".png") {
-      return cb(new Error("Only .jpg, .jpeg and .png formats are allowed"));
-    }
-    cb(null, true);
+    cb(null, "");
   },
 });
 
+const filefilter = (req, file, cb) => {
+  if (
+    file.mimetype === "image/jpeg" ||
+    file.mimetype === "image/jpg" ||
+    file.mimetype === "image/png" ||
+    file.mimetype === "image/gif"
+  ) {
+    cb(null, true); // Allow the file to be uploaded
+  } else {
+    cb(null, false); // Reject the file
+  }
+};
+
 // use upload middleware to handle the file upload
-const upload = multer({ storage: storage });
+const upload = multer({ storage: storage, fileFilter: filefilter });
 
 // API: upload profile picture
 router.post(
@@ -238,30 +244,47 @@ router.post(
   upload.single("profilePic"),
   async (req, res) => {
     const userId = req.params.id;
-    const currentUser = req.user._id;
+    const currentUser = req.user._id.toString();
 
     try {
-      if (userId != currentUser) {
-        res.status(403).json({
+      if (userId !== currentUser) {
+        return res.status(403).json({
           isSuccess: false,
           errMsg: "Not allowed to change other's profile",
         });
-      } else {
-        const { isSuccess, user } = await getUserById(currentUser);
-
-        if (isSuccess && user) {
-          user.profilePic = req.file.filename;
-          await user.save();
-          res
-            .status(200)
-            .json({ isSuccess: true, msg: "File Uploaded Successfully!" });
-        } else {
-          res.status(404).json({ isSuccess: false, errMsg: "User Not Found" });
-        }
       }
+
+      const { isSuccess, user } = await getUserById(currentUser);
+
+      if (!isSuccess || !user) {
+        return res
+          .status(404)
+          .json({ isSuccess: false, errMsg: "User Not Found" });
+      }
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({ isSuccess: false, errMsg: "File type not allowed" });
+      }
+      const params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: req.file.originalname,
+        Body: req.file.buffer,
+        ACL: "public-read-write",
+        ContentType: "image/jpeg",
+      };
+
+      const data = await s3.upload(params).promise();
+
+      user.profilePic = data.Location;
+      await user.save();
+
+      return res
+        .status(200)
+        .json({ isSuccess: true, msg: "File Uploaded Successfully!" });
     } catch (error) {
-      console.log(error);
-      res.status(500).json({ errMsg: "Internal Server Error" });
+      console.error(error);
+      return res.status(500).json({ errMsg: "Internal Server Error" });
     }
   }
 );
