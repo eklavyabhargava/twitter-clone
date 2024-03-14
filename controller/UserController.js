@@ -267,7 +267,7 @@ router.post(
           .json({ isSuccess: false, errMsg: "File type not allowed" });
       }
       const params = {
-        Bucket: process.env.AWS_BUCKET_NAME,
+        Bucket: process.env.CYCLIC_BUCKET_NAME,
         Key: req.file.originalname,
         Body: req.file.buffer,
         ACL: "public-read-write",
