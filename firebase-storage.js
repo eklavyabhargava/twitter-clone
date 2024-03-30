@@ -14,6 +14,8 @@ const serviceAccount = {
   universe_domain: process.env.universe_domain,
 };
 
+console.log(serviceAccount);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   storageBucket: process.env.FIRESTORE_STORAGE_BUCKET,
