@@ -7,6 +7,14 @@ const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY;
 const router = express.Router();
 const User = mongoose.model("User");
 
+function generateRefreshToken(id) {
+  if (!id) return null;
+
+  return jwt.sign({ id }, JWT_SECRET_KEY, {
+    expiresIn: "48h",
+  });
+}
+
 // API: user registration
 router.post("/register", async (req, res) => {
   const { name, emailId, username, password } = req.body;
@@ -69,25 +77,22 @@ router.post("/login", async (req, res) => {
   // validate inputs
   if (!usernameOrEmailId || !password) {
     return res
-      .status(200)
+      .status(400)
       .json({ isSuccess: false, errMsg: "Mandatory fields are missing!" });
   }
 
   try {
-    // check username in db
     const user = await User.findOne({
-      $or: [
-        { username: usernameOrEmailId },
-        { isSuccess: false, emailId: usernameOrEmailId },
-      ],
+      $or: [{ username: usernameOrEmailId }, { emailId: usernameOrEmailId }],
     });
     if (user) {
       // compare password and login if password match
       const didMatch = await bcryptjs.compare(password, user.password);
       if (didMatch) {
-        const jwtToken = jwt.sign({ id: user._id }, JWT_SECRET_KEY, {
-          expiresIn: "1h",
-        });
+        const jwtToken = generateRefreshToken(user._id);
+        if (!jwtToken) {
+          return res.status(400).json({ isSuccess: false });
+        }
         const data = { ...user.toObject(), password: undefined };
         return res.status(200).json({
           isSuccess: true,
@@ -113,4 +118,4 @@ router.post("/login", async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = { router, generateRefreshToken };

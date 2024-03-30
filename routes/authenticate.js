@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-const authUser = require("../controller/AuthUser");
+const { router } = require("../controller/AuthUser");
 
-app.use("/auth", authUser);
+app.use("/auth", router);
 module.exports = app;

@@ -1,20 +1,15 @@
 const express = require("express");
-const AWS = require("aws-sdk");
 const mongoose = require("mongoose");
 const router = express.Router();
 const User = mongoose.model("User");
 
 const multer = require("multer");
-const path = require("path");
-
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-});
+const bucket = require("../firebase-storage");
+const { generateRefreshToken } = require("./AuthUser");
 
 const getUserById = async (id) => {
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(id).select("-password");
     return { isSuccess: true, user };
   } catch (error) {
     console.log(error);
@@ -26,7 +21,7 @@ async function getUserByName(username) {
   try {
     const users = await User.find({
       username: { $regex: `^${username}`, $options: "i" },
-    });
+    }).select("-password");
     return { isSuccess: true, users };
   } catch (error) {
     console.log(error);
@@ -58,6 +53,19 @@ router.get("/get-details", async (req, res) => {
   }
 });
 
+// Endpoint to receive active status updates and return refresh token
+router.post("/active-status", (req, res) => {
+  // Process active status update
+  const { activeStatus } = req.body;
+  if (activeStatus) {
+    // Generate and return refresh token
+    const refreshToken = generateRefreshToken(req.user._id);
+    res.json({ isSuccess: true, Token: refreshToken });
+  } else {
+    res.status(400).json({ isSuccess: false });
+  }
+});
+
 // API: get single user details
 router.get("/get-user-details/:id", async (req, res) => {
   try {
@@ -67,15 +75,7 @@ router.get("/get-user-details/:id", async (req, res) => {
       const { user } = response;
       res.status(200).json({
         isSuccess: true,
-        _id: user._id,
-        name: user.name,
-        username: user.username,
-        dob: user.dob,
-        followers: user.followers,
-        followings: user.followings,
-        location: user.location,
-        profilePic: path.join(__dirname, "..", user.profilePic),
-        createdAt: user.createdAt,
+        ...user._doc,
       });
     } else {
       res.status(404).json({ isSuccess: false, errMsg: "User Not Found" });
@@ -235,7 +235,7 @@ const filefilter = (req, file, cb) => {
   }
 };
 
-// use upload middleware to handle the file upload
+// using upload middleware to handle the file upload
 const upload = multer({ storage: storage, fileFilter: filefilter });
 
 // API: upload profile picture
@@ -246,46 +246,76 @@ router.post(
     const userId = req.params.id;
     const currentUser = req.user._id.toString();
 
-    try {
-      if (userId !== currentUser) {
-        return res.status(403).json({
-          isSuccess: false,
-          errMsg: "Not allowed to change other's profile",
-        });
-      }
-
-      const { isSuccess, user } = await getUserById(currentUser);
-
-      if (!isSuccess || !user) {
-        return res
-          .status(404)
-          .json({ isSuccess: false, errMsg: "User Not Found" });
-      }
-      if (!req.file) {
-        return res
-          .status(400)
-          .json({ isSuccess: false, errMsg: "File type not allowed" });
-      }
-      const params = {
-        Bucket: process.env.CYCLIC_BUCKET_NAME,
-        Key: req.file.originalname,
-        Body: req.file.buffer,
-        ACL: "public-read-write",
-        ContentType: "image/jpeg",
-      };
-
-      const data = await s3.upload(params).promise();
-
-      user.profilePic = data.Location;
-      await user.save();
-
-      return res
-        .status(200)
-        .json({ isSuccess: true, msg: "File Uploaded Successfully!" });
-    } catch (error) {
-      console.error(error);
-      return res.status(500).json({ errMsg: "Internal Server Error" });
+    if (userId !== currentUser) {
+      return res.status(403).json({
+        isSuccess: false,
+        errMsg: "Not allowed to change other's profile",
+      });
     }
+
+    const { isSuccess, user } = await getUserById(currentUser);
+
+    if (!isSuccess || !user) {
+      return res
+        .status(404)
+        .json({ isSuccess: false, errMsg: "User Not Found" });
+    }
+
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ isSuccess: false, errMsg: "File not provided" });
+    }
+
+    const file = req.file;
+
+    const fileName = `images/${currentUser}/${file.originalname}`;
+    const fileUpload = bucket.file(fileName);
+
+    const metadata = {
+      metadata: {
+        contentType: file.mimetype,
+      },
+    };
+
+    // Upload the file
+    fileUpload.save(file.buffer, metadata, (err) => {
+      if (err) {
+        console.error("Error uploading file:", err);
+        return res.status(500).send("Error uploading file.");
+      }
+
+      // File uploaded successfully, get the download URL
+      fileUpload.getSignedUrl(
+        { action: "read", expires: "2500-01-30" }, // Correct format for expiration date
+        async (err, url) => {
+          if (err) {
+            console.error("Error generating signed URL:", err);
+            return res.status(500).json({
+              isSuccess: false,
+              errMsg: "Error generating download URL.",
+            });
+          }
+
+          try {
+            user.profilePic = url;
+            await user.save();
+          } catch (error) {
+            console.log(error);
+            return res
+              .status(500)
+              .json({ isSuccess: false, errMsg: "Internal error occurred!" });
+          }
+
+          // Return the download URL to the client
+          return res.status(200).json({
+            isSuccess: true,
+            msg: "Profile updated successfully!",
+            profilePic: url,
+          });
+        }
+      );
+    });
   }
 );
 
@@ -297,16 +327,10 @@ router.get("/get-user-by-name/:username", async (req, res) => {
 
   const { isSuccess, users } = await getUserByName(username);
 
-  const sanitizedUsers = users?.map((user) => {
-    const sanitizedUser = user.toObject({ getters: true, virtuals: true });
-    delete sanitizedUser.password;
-    return sanitizedUser;
-  });
-
-  if (isSuccess && sanitizedUsers) {
+  if (isSuccess && users) {
     res.status(200).json({
       isSuccess: true,
-      users: [...sanitizedUsers],
+      users: [...users],
     });
   } else {
     res.status(404).json({ isSuccess: false });
