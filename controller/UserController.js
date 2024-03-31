@@ -176,7 +176,7 @@ router.put("/edit-profile/:id", async (req, res) => {
   const reqId = req.params.id;
   const userId = req.user._id;
 
-  if (!name || !dob || !location) {
+  if (!name) {
     res
       .status(400)
       .json({ isSuccess: false, errMsg: "Mandatory fields are missing!" });
@@ -192,8 +192,8 @@ router.put("/edit-profile/:id", async (req, res) => {
           userId,
           {
             name,
-            dob,
-            location,
+            dob: dob || "",
+            location: location || "",
           },
           { new: true }
         );

@@ -204,27 +204,23 @@ router.get("/get-tweets", async (req, res) => {
   const page = parseInt(req.query.page) || 1; // Default to page 1 if not provided
   const limit = 10; // Number of tweets per page
 
-  setTimeout(async () => {
-    try {
-      const tweets = await Tweet.find()
-        .populate("tweetedBy", "name username profilePic")
-        .populate("likes", "name username profilePic")
-        .populate("retweetBy", "name username profilePic")
-        .populate({
-          path: "replies",
-          populate: { path: "tweetedBy", select: "name username profilePic" },
-        })
-        .skip((page - 1) * limit) // Skip tweets based on the page number
-        .limit(limit); // Limit the number of tweets per page
+  try {
+    const tweets = await Tweet.find()
+      .populate("tweetedBy", "name username profilePic")
+      .populate("likes", "name username profilePic")
+      .populate("retweetBy", "name username profilePic")
+      .populate({
+        path: "replies",
+        populate: { path: "tweetedBy", select: "name username profilePic" },
+      })
+      .skip((page - 1) * limit) // Skip tweets based on the page number
+      .limit(limit); // Limit the number of tweets per page
 
-      res.status(200).json({ isSuccess: true, tweets: tweets });
-    } catch (error) {
-      console.log(error);
-      res
-        .status(500)
-        .json({ isSuccess: false, errMsg: "Internal Server Error" });
-    }
-  }, 5000);
+    res.status(200).json({ isSuccess: true, tweets: tweets });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ isSuccess: false, errMsg: "Internal Server Error" });
+  }
 });
 
 // API: delete tweet
